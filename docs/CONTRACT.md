@@ -70,3 +70,52 @@ Rules:
 | GET | `/api/spaceweather` | | `{"source": "NOAA SWPC GOES" or "fallback", "proton_flux_pfu": 0.3, "s_scale": 0, "updated": "ISO time"}` |
 
 Scenario ids: `nominal`, `solar_particle_event`, `hypoxia`, `loose_electrode`, `fatigue`.
+
+## Local database
+
+The backend stores everything in one SQLite file, `backend/data/vitalis.db` (path can be changed with the `VITALIS_DB` environment variable). The file stays on the machine and is not committed. Stored: one row of vitals and radiation per second, every alert when it starts, every check-in, every scenario change and every analysis report.
+
+| Method | Path | Query / body | Returns |
+|---|---|---|---|
+| GET | `/api/history` | `metric` (a vital key, `dose_rate` or `dose_total`), `minutes` (default 60, max 1440) | `{"metric": "hr", "points": [{"t": "ISO time", "value": 71.2, "status": "green"}]}`, oldest first, thinned to at most 300 points |
+| GET | `/api/alerts/log` | `limit` (default 50) | list of past alerts, newest first: `{"id", "t" (ISO time), "metric", "level", "origin", "title"}` |
+| GET | `/api/stats` | | `{"rows": 12345, "first": "ISO time", "last": "ISO time", "size_kb": 420}` |
+
+Check-ins (`/api/checkin`, `/api/checkins`) keep the same shape but are now stored in the database.
+
+## Health analysis
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/api/analysis` | `{"minutes": 60}` (optional, default 60) | a new report, see below |
+| GET | `/api/analysis/latest` | | the newest report, or 404 if none exists |
+
+```json
+{
+  "id": 7,
+  "t": "2026-11-14T22:10:03Z",
+  "window_minutes": 60,
+  "engine": "local",
+  "model": null,
+  "summary": "Two or three plain sentences on the overall state.",
+  "findings": [
+    {
+      "condition": "Possible low blood oxygen (hypoxia)",
+      "likelihood": "high",
+      "evidence": ["Blood oxygen averaged 89.1%, 8.9 below your baseline", "Heart rate rose 14 bpm in the same period"],
+      "action": "One sentence on what to do next."
+    }
+  ],
+  "facts": ["Heart rate variability has trended down 12% over the last hour."],
+  "data_points": 3540,
+  "disclaimer": "Decision support, not a medical diagnosis."
+}
+```
+
+Rules:
+
+- `engine` is `local` (the built-in rule and trend engine, works with no network) or `llm` (a language model wrote the report from the same data). `model` is the model id when `engine` is `llm`, otherwise null.
+- `likelihood` is one of `low`, `medium`, `high`.
+- `findings` may be empty; then `summary` says that nothing unusual was found. At most 5 findings, most likely first.
+- `facts` holds 2 to 6 short observations from the stored data (trends, averages, links between measurements).
+- If the language model is not configured or fails, the backend returns the local report. It never returns an error because of the model.
