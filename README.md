@@ -13,6 +13,8 @@ VITALIS reads the astronaut's vital signs and the radiation dose, compares each 
 - Tells a sensor fault or a radiation hit on the sensor apart from a real change in the body, so a loose electrode does not abort a spacewalk.
 - Gives step-by-step guidance for every alert, written for someone who is not a doctor.
 - Daily check-in for mood and sleep, and a short task list.
+- Stores every reading, alert and check-in in a local database on board, so it works with no link to Earth.
+- Health insights: analyses the stored data and lists possible conditions with the evidence behind each one, plus facts and trends.
 
 ## Run it
 
@@ -43,6 +45,23 @@ Open http://localhost:5173. Use the scenario picker to trigger a solar particle 
 ```
 simulated wearable -> validation -> filtering -> vitals -> statistics -> alerts -> WebSocket -> phone screen
 ```
+
+## Database and health insights
+
+Everything is stored in one SQLite file, `backend/data/vitalis.db`, created on first run. It stays on the machine and is not part of the repository. Delete the file to start clean.
+
+The "Analyze my data" button runs the on-board engine. It needs no network: it computes averages and trends from the stored data and matches known patterns such as low blood oxygen, an early response to radiation, fatigue, fever, low blood pressure, low mood and sensor faults.
+
+A language model can write the report from the same numbers. This is optional and off by default:
+
+| Variable | Effect |
+|---|---|
+| `ANTHROPIC_API_KEY` | Use the Anthropic API |
+| `VITALIS_USE_BEDROCK=1` | Use AWS Bedrock with the machine's AWS credentials |
+| `VITALIS_MODEL` | Model id, default `claude-opus-5-5` |
+| `VITALIS_DB` | Path of the database file |
+
+If the model is not configured or fails, the on-board engine answers. The model only receives aggregated statistics, never raw readings. The model path has not been run against a live key yet.
 
 The data has no real sensor behind it yet. A simulator produces the signals, behind the same interface a Bluetooth or serial reader would use.
 

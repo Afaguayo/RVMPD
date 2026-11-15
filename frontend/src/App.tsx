@@ -5,8 +5,10 @@ import { BottomSheet } from './components/BottomSheet'
 import { CheckIn } from './components/CheckIn'
 import { DemoControl } from './components/DemoControl'
 import { Hud } from './components/Hud'
+import { Insights } from './components/Insights'
 import { Oscilloscope } from './components/Oscilloscope'
 import { SpaceWeather } from './components/SpaceWeather'
+import { StoredData } from './components/StoredData'
 import { StatusBar, type ViewMode } from './components/StatusBar'
 import { Tasks } from './components/Tasks'
 import { VitalsGrid } from './components/VitalsGrid'
@@ -59,12 +61,16 @@ export default function App() {
         {view === 'hud' ? (
           <Hud frame={frame} />
         ) : (
-          <VitalsGrid frame={frame} history={history} onOpen={openMetric} />
+          <>
+            <VitalsGrid frame={frame} history={history} onOpen={openMetric} />
+            <Insights />
+          </>
         )}
         <BodyFigure frame={frame} onOpen={setSheet} />
         <SpaceWeather />
         <CheckIn checkins={checkins} onSaved={loadCheckins} />
         <Tasks />
+        <StoredData />
         <DemoControl current={frame.scenario} onSelect={setScenario} />
       </main>
       <BottomSheet target={sheet} frame={frame} latestCheckin={checkins[0]} onClose={closeSheet} />

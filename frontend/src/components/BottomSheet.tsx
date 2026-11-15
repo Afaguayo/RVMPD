@@ -1,10 +1,55 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { api } from '../api'
 import { fmt, METRICS, STATUS_WORD, TRUST_LIMIT, type SheetKey } from '../meta'
-import type { Checkin, Frame, MetricKey } from '../types'
+import type { Checkin, Frame, HistoryPoint, MetricKey } from '../types'
 import type { SheetTarget } from './BodyFigure'
 import { StatusBadge } from './Status'
 
 const ORIGIN_LABEL = { physiological: 'Body change', artifact: 'Sensor artifact' } as const
+
+const CHART_W = 320
+const CHART_H = 110
+const PAD = 8
+
+// Loaded when the sheet opens; if the request fails or is empty the chart is simply left out.
+function HistoryChart({ metricKey, baseline, unit }: { metricKey: MetricKey | 'radiation'; baseline: number | null; unit: string }) {
+  const [points, setPoints] = useState<HistoryPoint[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .history(metricKey === 'radiation' ? 'dose_rate' : metricKey, 60)
+      .then((r) => !cancelled && setPoints(r.points))
+      .catch(() => !cancelled && setPoints([]))
+    return () => {
+      cancelled = true
+    }
+  }, [metricKey])
+
+  if (points.length < 2) return null
+  const values = points.map((p) => p.value)
+  const lo = Math.min(...values, baseline ?? Infinity)
+  const hi = Math.max(...values, baseline ?? -Infinity)
+  const span = hi - lo || 1
+  const y = (v: number) => PAD + (1 - (v - lo) / span) * (CHART_H - 2 * PAD)
+  const line = values.map((v, i) => `${(PAD + (i / (values.length - 1)) * (CHART_W - 2 * PAD)).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const decimals = METRICS[metricKey].decimals
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+
+  return (
+    <div className="history-chart">
+      <h4>Last hour</h4>
+      <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} role="img" aria-label={`${METRICS[metricKey].name} over the last hour, from ${fmt(min, decimals)} to ${fmt(max, decimals)} ${unit}`}>
+        {baseline !== null && <line x1={PAD} x2={CHART_W - PAD} y1={y(baseline)} y2={y(baseline)} stroke="var(--muted)" strokeDasharray="4 3" />}
+        <polyline points={line} fill="none" stroke="var(--trace)" strokeWidth="2" strokeLinejoin="round" />
+        <text x={CHART_W - PAD} y={PAD + 8} textAnchor="end">max {fmt(max, decimals)}</text>
+        <text x={CHART_W - PAD} y={CHART_H - 2} textAnchor="end">min {fmt(min, decimals)}</text>
+      </svg>
+      {baseline !== null && <p className="muted">Dashed line: your baseline</p>}
+    </div>
+  )
+}
 
 function MetricSection({ metricKey, frame }: { metricKey: MetricKey | 'radiation'; frame: Frame }) {
   const meta = METRICS[metricKey]
@@ -12,6 +57,8 @@ function MetricSection({ metricKey, frame }: { metricKey: MetricKey | 'radiation
 
   let reading: string
   let baseline: string | null = null
+  let baselineValue: number | null = null
+  let unit = 'µSv/h'
   let untrusted = false
   if (metricKey === 'radiation') {
     const r = frame.radiation
@@ -20,6 +67,8 @@ function MetricSection({ metricKey, frame }: { metricKey: MetricKey | 'radiation
     const v = frame.vitals[metricKey]
     reading = `${fmt(v.value, meta.decimals)} ${v.unit}`
     baseline = `${fmt(v.baseline, meta.decimals)} ${v.unit}`
+    baselineValue = v.baseline
+    unit = v.unit
     untrusted = v.sqi < TRUST_LIMIT
   }
 
@@ -46,6 +95,7 @@ function MetricSection({ metricKey, frame }: { metricKey: MetricKey | 'radiation
           <p className="muted">Normal range: {meta.normal}</p>
         </>
       )}
+      <HistoryChart metricKey={metricKey} baseline={baselineValue} unit={unit} />
       {untrusted && <p className="muted">The sensor signal is weak, so this reading is not trusted right now.</p>}
       <dl className="readings num">
         <div>

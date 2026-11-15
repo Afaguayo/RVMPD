@@ -752,3 +752,111 @@ form .btn-primary {
     scroll-behavior: auto !important;
   }
 }
+
+/* Health insights */
+.insights-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.insights-controls select {
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.insights-report,
+.finding,
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.finding {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.likelihood {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.evidence {
+  padding-left: 18px;
+  list-style: disc;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.finding-action {
+  border-left: 3px solid var(--trace);
+  padding-left: 10px;
+}
+
+.insight-calm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.insights-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--amber);
+}
+
+.insights-foot {
+  font-size: 0.875rem;
+}
+
+/* Stored data */
+.alert-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.alert-log li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+/* History chart in the bottom sheet */
+.history-chart {
+  width: 100%;
+}
+
+.history-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.history-chart text {
+  fill: var(--muted);
+  font-size: 11px;
+}

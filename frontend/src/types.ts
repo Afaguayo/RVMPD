@@ -74,3 +74,52 @@ export interface SpaceWeather {
   s_scale: number
   updated: string
 }
+
+export interface HistoryPoint {
+  t: string
+  value: number
+  status: Status
+}
+
+export interface HistoryResponse {
+  metric: string
+  points: HistoryPoint[]
+}
+
+export interface AlertLogEntry {
+  id: number | string
+  t: string
+  metric: string
+  level: Status
+  origin: Alert['origin']
+  title: string
+}
+
+export interface Stats {
+  rows: number
+  first: string
+  last: string
+  size_kb: number
+}
+
+export type Likelihood = 'low' | 'medium' | 'high'
+
+export interface Finding {
+  condition: string
+  likelihood: Likelihood
+  evidence: string[]
+  action: string
+}
+
+export interface AnalysisReport {
+  id: number
+  t: string
+  window_minutes: number
+  engine: 'local' | 'llm'
+  model: string | null
+  summary: string
+  findings: Finding[]
+  facts: string[]
+  data_points: number
+  disclaimer: string
+}

@@ -1,14 +1,17 @@
 """VITALIS backend: simulation loop, REST routes and the /ws frame stream."""
 import asyncio
 import contextlib
-from datetime import datetime, timezone
+import logging
+import sqlite3
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from . import analysis, llm
 from .alerts import AlertTracker
+from .db import Database, now_iso
 from .pipeline import Pipeline
 from .simulator import CHUNK, FS, SCENARIOS, Simulator
 from .spaceweather import get_spaceweather
@@ -17,12 +20,15 @@ from .stats import ALPHA, VitalStats, global_status, radiation_status
 FRAME_SECONDS = CHUNK / FS
 TICKS_PER_VITALS_UPDATE = 5  # vitals are recomputed once per second
 WARMUP_TICKS = 125  # 25 s of data so the first frame already has trustworthy vitals
+log = logging.getLogger("vitalis.db")
 
 
 class Engine:
     """Runs simulator -> pipeline -> stats -> alerts and builds one frame per tick."""
 
-    def __init__(self, seed=None):
+    def __init__(self, seed=None, db=None):
+        self.db = None  # attached after the warm-up so those first seconds are not stored
+        self.logged_alerts = set()
         self.sim = Simulator(seed)
         self.pipeline = Pipeline(self.sim.rng)
         self.stats = VitalStats()
@@ -34,6 +40,20 @@ class Engine:
         self.alert_list = []
         for _ in range(WARMUP_TICKS):
             self._advance()
+        self.db = db
+
+    def _record(self, chunk):
+        """Store this second; an alert is stored once, when it first appears."""
+        try:
+            self.db.record_sample(now_iso(), chunk.t, self.sim.scenario.id, self.vitals,
+                                  round(chunk.dose_rate, 1), round(chunk.dose_total_msv, 3), self.radiation,
+                                  self.global_block["status"])
+            for alert in self.alert_list:
+                if alert["id"] not in self.logged_alerts:
+                    self.logged_alerts.add(alert["id"])
+                    self.db.log_alert(alert)
+        except sqlite3.Error as e:  # a storage problem must not stop the live stream
+            log.warning("Could not store samples: %s", e)
 
     def _advance(self):
         chunk = self.sim.step()
@@ -54,6 +74,8 @@ class Engine:
                 "sqi": round(mean, 2),
                 "link": "ok",
             }
+            if self.db:
+                self._record(chunk)
         return chunk
 
     def next_frame(self):
@@ -74,6 +96,10 @@ class Engine:
 
 class ScenarioChange(BaseModel):
     id: str
+
+
+class AnalysisIn(BaseModel):
+    minutes: int = Field(60, ge=1, le=1440)
 
 
 class CheckInIn(BaseModel):
@@ -98,14 +124,15 @@ async def run_simulation(app):
 
 @contextlib.asynccontextmanager
 async def lifespan(app):
-    app.state.engine = Engine()
+    app.state.db = Database()
+    app.state.engine = Engine(db=app.state.db)
     app.state.clients = set()
-    app.state.checkins = []
     task = asyncio.create_task(run_simulation(app))
     yield
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+    app.state.db.close()
 
 
 app = FastAPI(title="VITALIS", lifespan=lifespan)
@@ -128,20 +155,51 @@ def set_scenario(body: ScenarioChange):
     if body.id not in SCENARIOS:
         raise HTTPException(status_code=404, detail=f"Unknown scenario '{body.id}'")
     app.state.engine.sim.set_scenario(body.id)
+    app.state.db.log_scenario(body.id)
     return {"ok": True, "scenario": body.id}
 
 
 @app.get("/api/checkins")
 def list_checkins():
-    return list(reversed(app.state.checkins))
+    return app.state.db.checkins()
 
 
 @app.post("/api/checkin")
 def add_checkin(body: CheckInIn):
-    checkin = {"id": len(app.state.checkins) + 1, **body.model_dump(),
-               "t": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    app.state.checkins.append(checkin)
-    return checkin
+    return app.state.db.add_checkin(**body.model_dump())
+
+
+@app.get("/api/history")
+def history(metric: str, minutes: int = Query(60, ge=1, le=1440)):
+    try:
+        return {"metric": metric, "points": app.state.db.history(metric, minutes)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown metric '{metric}'")
+
+
+@app.get("/api/alerts/log")
+def alerts_log(limit: int = Query(50, ge=1, le=500)):
+    return app.state.db.alert_log(limit)
+
+
+@app.get("/api/stats")
+def database_stats():
+    return app.state.db.stats()
+
+
+# A plain `def` route runs in a worker thread, so the analysis never blocks the event loop
+@app.post("/api/analysis")
+def run_analysis(body: AnalysisIn | None = None):
+    stats = analysis.window_stats(app.state.db, (body or AnalysisIn()).minutes)
+    return app.state.db.save_report(llm.refine(stats, analysis.local_report(stats)))
+
+
+@app.get("/api/analysis/latest")
+def latest_analysis():
+    report = app.state.db.latest_report()
+    if report is None:
+        raise HTTPException(status_code=404, detail="No analysis has been run yet")
+    return report
 
 
 @app.get("/api/spaceweather")
